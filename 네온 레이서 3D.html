@@ -750,7 +750,7 @@ function updateSound(spd, maxSpd, boost) {
 // ═══════════════════════════════════════════════
 let started = false, finished = false;
 let lap = 0, lapStart = 0, bestLap = Infinity, lapTimes = [];
-let prevSide = null;
+let prevSide = null, gateReady = false;
 
 const gatePos  = trackCurve.getPoint(0);
 const gateTan  = trackCurve.getTangent(0).normalize();
@@ -763,7 +763,7 @@ function timeFmt(ms) {
 function startGame() {
   if (started) return;
   started = true; finished = false;
-  lap = 0; lapStart = performance.now(); lapTimes = []; prevSide = null;
+  lap = 0; lapStart = performance.now(); lapTimes = []; prevSide = null; gateReady = false;
   initAudio();
   const m = document.getElementById('msg');
   m.style.opacity = '0';
@@ -772,22 +772,36 @@ function startGame() {
 
 function checkLap() {
   if (!started || finished) return;
+  // Wait until car travels 30+ units from the gate before counting laps
+  if (!gateReady) {
+    if (carPos.distanceTo(gatePos) > 30) gateReady = true;
+    else return;
+  }
   const dx = carPos.x - gatePos.x, dz = carPos.z - gatePos.z;
-  if (Math.abs(gateTan.x*dx + gateTan.z*dz) > TRACK_W/2) { prevSide=null; return; }
-  const side = gateNorm.x*dx + gateNorm.z*dz;
-  if (prevSide !== null) {
+  
+  // 1. Check lateral boundary (make sure we cross on the track, not somewhere else)
+  const lateral = gateNorm.x*dx + gateNorm.z*dz;
+  if (Math.abs(lateral) > 25) { prevSide=null; return; }
+  
+  // 2. Check longitudinal position (gate zone)
+  const side = gateTan.x*dx + gateTan.z*dz;
+  if (Math.abs(side) > 15) { prevSide=null; return; }
+  
+  if (prevSide !== null && Math.abs(side) > 0.1) {
     const ps = prevSide>0?1:-1, cs = side>0?1:-1;
+    // Crossing forward: from negative side (< 0) to positive side (> 0)
     if (ps !== cs && cs === 1) {
       const now = performance.now(), lt = now - lapStart;
       lapTimes.push(lt);
       if (lt < bestLap) { bestLap = lt; document.getElementById('besttime').textContent = 'BEST: '+timeFmt(bestLap); }
       lap++; lapStart = now;
+      gateReady = false; // must travel away from gate again before next lap
       document.getElementById('lapnum').textContent = `LAP ${lap} / ${TOTAL_LAPS}`;
       flashLap(lap >= TOTAL_LAPS);
       if (lap >= TOTAL_LAPS) { finished = true; setTimeout(showNameBox, 1300); }
     }
   }
-  prevSide = side;
+  if (Math.abs(side) > 0.1) prevSide = side;
 }
 
 function flashLap(done) {
